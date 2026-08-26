@@ -10,7 +10,7 @@ blink.elf: startup.c main.c linker.ld
 	arm-none-eabi-size $@
 
 flash: blink.bin
-	cp blink.bin /d/NODE_L476RG/
+	cp blink.bin /d/
 
 clean:
 	rm -f *.elf *.bin *.map
