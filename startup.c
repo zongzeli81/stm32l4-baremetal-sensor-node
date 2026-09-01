@@ -1,5 +1,5 @@
 /*
- * startup.c - vector table and reset handler for STM32L476RG (stage 1+2)
+ * startup.c - vector table and reset handler for STM32L476RG (stage 1+2+3)
  * At reset, hardware loads word 0 of flash into SP and word 1 into PC
  * (PM0214 , reset behavior). No code runs before Reset_Handler
  */
@@ -17,12 +17,15 @@ void Reset_Handler(void);
 
 void EXTI15_10_IRQHandler(void);
 
+void TIM2_IRQHandler(void);
+
 int main(void);
 
 // Read by hardware, never called by code, which is why linker.ld wraps it in KEEP.
 // Word 0 is the initial stack pointer, word 1 is the reset handler, 2-15 the Cortex-M system exceptions.
 // Peripheral IRQs start at slot 16: EXTI15_10 is IRQ 40, so its handler sits at slot 56.
 // Every other slot is parked in Default_Handler until a stage claims it.
+// TIM2 is IRQ 28, slot 44.
 __attribute__((section(".isr_vector")))
 void (*const vector_table[57])(void) = {
     (void (*)(void))_estack,
@@ -69,7 +72,7 @@ void (*const vector_table[57])(void) = {
     Default_Handler,
     Default_Handler,
     Default_Handler,
-    Default_Handler,
+    TIM2_IRQHandler,
     Default_Handler,
     Default_Handler,
     Default_Handler,

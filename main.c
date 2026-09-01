@@ -1,5 +1,5 @@
 /*
- * main.c - stage 1+2: blink LD2, toggle on button via EXTI interrupt.
+ *  main.c - stage 1+2+3: blink LD2 from TIM2 interrupt, toggle on button via EXTI.
  */
 
 #include <stdint.h>
@@ -20,6 +20,16 @@ volatile uint32_t *EXTI_IMR1 = (volatile uint32_t *)0x40010400;
 volatile uint32_t *EXTI_FTSR1 = (volatile uint32_t *)0x4001040C;
 volatile uint32_t *EXTI_PR1 = (volatile uint32_t *)0x40010414;
 volatile uint32_t *NVIC_ISER1 = (volatile uint32_t *)0xE000E104;
+/* TIM2 at 0x40000000 (APB1): CR1 +0x00, DIER +0x0C, SR +0x10, PSC +0x28, ARR +0x2C.
+   NVIC_ISER0 at 0xE000E100: IRQs 0-31.*/
+volatile uint32_t *RCC_APB1ENR1 = (volatile uint32_t *)0x40021058;
+volatile uint32_t *TIM2_CR1 = (volatile uint32_t *)0x40000000;
+volatile uint32_t *TIM2_DIER = (volatile uint32_t *)0x4000000C;
+volatile uint32_t *TIM2_SR = (volatile uint32_t *)0x40000010;
+volatile uint32_t *TIM2_PSC = (volatile uint32_t *)0x40000028;
+volatile uint32_t *TIM2_ARR = (volatile uint32_t *)0x4000002C;
+volatile uint32_t *NVIC_ISER0 = (volatile uint32_t *)0xE000E100;
+
 
 int main(void) {
 
@@ -29,6 +39,8 @@ int main(void) {
 *RCC_AHB2ENR |= (1u << 2);
 *RCC_AHB2ENR |= (1u << 0);
 *RCC_APB2ENR |= (1u << 0);
+*RCC_APB1ENR1 |= (1u << 0);
+(void)*RCC_APB1ENR1;
 (void)*RCC_AHB2ENR;
 (void)*RCC_APB2ENR;
 
@@ -46,8 +58,18 @@ int main(void) {
 /* Unmask line 13 and select falling edge: B1 grounds PC13 when pressed. */
 *EXTI_IMR1 |= (1u << 13);
 *EXTI_FTSR1 |= (1u << 13);
+
+/* TIM2 on APB1 (clocked above). PSC = 3999 divides 4 MHz to 1 kHz; ARR = 999
+   gives an update every 1000 counts = 1 per second. UIE enables the update
+   interrupt. CEN starts the counter, set last so PSC and ARR are in place. */
+*TIM2_PSC = 3999;
+*TIM2_ARR = 999;
+*TIM2_DIER |= (1u << 0);
 /* Enable IRQ 40 (EXTI15_10) in the NVIC: ISER1 bit 8, write-1-to-set. */
 *NVIC_ISER1 |= (1u << 8);
+/* Enable IRQ 28 (TIM2) in the NVIC: ISER0 bit 28. */
+*NVIC_ISER0 |= (1u << 28);
+*TIM2_CR1 |= (1u << 0);
 
 while (1);
 
@@ -60,4 +82,12 @@ void EXTI15_10_IRQHandler(void) {
     *EXTI_PR1 = (1u << 13);
     (void)*EXTI_PR1;
     *GPIOA_ODR ^= (1u << 5);
+}
+
+/* UIF clears by writing 0 (rc_w0), the opposite of EXTI_PR1. The &= ~ writes
+   0 to bit 0 and leaves the other flags as read. Readback drains the store. */
+void TIM2_IRQHandler(void) {
+   *TIM2_SR &= ~(1u << 0);
+   (void)*TIM2_SR;
+   *GPIOA_ODR ^= (1u << 5);
 }
