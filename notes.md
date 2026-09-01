@@ -16,3 +16,13 @@ EXTI_PR1       = EXTI base + 0x14 = 0x40010414 bit 13 = pending flag for line 13
 NVIC_ISER1 = 0xE000E104, bit 8 enables IRQ 40, EXTI15_10, write 1 to set
 
 PC13 reset mode: analog GPIOC MODER reset value = 0xFFFFFFFF, PC13 at power-on = 0b11,
+
+## Lessons
+
+- Clear a pending flag first in the handler and read it back. The clear is a
+  buffered store; returning before it reaches the peripheral lets the NVIC
+  re-enter the handler.
+- XOR observations are parity-blind. A handler entering twice per event looks
+  like never entering. Count events with a set or a counter when debugging.
+- EXTI_SWIER1 = 0x40010400 + 0x10 = 0x40010410, bit 13. Writing 1 fires line 13
+  from software, testing EXTI to NVIC to handler without the pin.

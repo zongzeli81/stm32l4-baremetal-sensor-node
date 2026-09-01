@@ -1,35 +1,63 @@
 /*
- * main.c - stage 1: blink LD2 (PA5) from registers, no HAL.
- * Register addresses from RM0351; board wiring from UM1724.
+ * main.c - stage 1+2: blink LD2, toggle on button via EXTI interrupt.
  */
 
 #include <stdint.h>
 
 /* RCC_AHB2ENR at 0x40021000 + 0x4C: peripheral clock enables
    GPIOA register block at 0x48000000: MODER at +0x00, ODR at +0x14
-   PA5 drives LD2 through a resistor. */
+   PA5 drives LD2 through a resistor. PC13 is user button B1
+   GPIOC block at 0x48000800. SYSCFG at 0x40010000, EXTICR4 at +0x14
+   EXTI at 0x40010400: IMR1 +0x00, FTSR1 +0x0C, PR1 +0x14.
+   NVIC_ISER1 at 0xE000E104: IRQs 32-63. */
 volatile uint32_t *RCC_AHB2ENR = (volatile uint32_t *)0x4002104C;
 volatile uint32_t *GPIOA_MODER = (volatile uint32_t *)0x48000000;
 volatile uint32_t *GPIOA_ODR = (volatile uint32_t *)0x48000014;
+volatile uint32_t *GPIOC_MODER = (volatile uint32_t *)0x48000800;
+volatile uint32_t *RCC_APB2ENR = (volatile uint32_t *)0x40021060;
+volatile uint32_t *SYSCFG_EXTICR4 = (volatile uint32_t *)0x40010014;
+volatile uint32_t *EXTI_IMR1 = (volatile uint32_t *)0x40010400;
+volatile uint32_t *EXTI_FTSR1 = (volatile uint32_t *)0x4001040C;
+volatile uint32_t *EXTI_PR1 = (volatile uint32_t *)0x40010414;
+volatile uint32_t *NVIC_ISER1 = (volatile uint32_t *)0xE000E104;
 
 int main(void) {
 
-/* Enable GPIOA clock (bit 0). Peripherals ignore the bus until clocked.
-   The discarded read gives the enable time to take effect before the first access to GPIOA. */
+/* Clocks first: GPIOA (bit 0) and GPIOC (bit 2) on AHB2, SYSCFG on APB2 bit 0.
+   Peripherals ignore the bus until clocked. Discarded reads let the enables
+   take effect before the first access. */
+*RCC_AHB2ENR |= (1u << 2);
 *RCC_AHB2ENR |= (1u << 0);
+*RCC_APB2ENR |= (1u << 0);
 (void)*RCC_AHB2ENR;
+(void)*RCC_APB2ENR;
+
 
 /* MODER: two bits per pin; PA5 is bits 11:10, 01 = output. Clear then set only that field.
    Other fields keep their reset values, including the SWD debug pins PA13/PA14, which can not be changed*/
 *GPIOA_MODER &= ~(3u <<10);
 *GPIOA_MODER |= (1u << 10);
+/* GPIOC resets to analog mode (MODER = 0xFFFFFFFF): Schmitt trigger is
+   disconnected and edges never reach EXTI. Clear bits 27:26 to 00 = input. */
+*GPIOC_MODER &= ~(3u << 26);
+/* Route port C onto EXTI line 13: EXTICR4 bits 7:4 = 0b0010. */
+*SYSCFG_EXTICR4 &= ~(0xFu << 4);
+*SYSCFG_EXTICR4 |= (2u << 4);
+/* Unmask line 13 and select falling edge: B1 grounds PC13 when pressed. */
+*EXTI_IMR1 |= (1u << 13);
+*EXTI_FTSR1 |= (1u << 13);
+/* Enable IRQ 40 (EXTI15_10) in the NVIC: ISER1 bit 8, write-1-to-set. */
+*NVIC_ISER1 |= (1u << 8);
 
-while (1) {
-    /* XOR flips ODR bit 5: PA5 output level inverts, LED changes state. */
-    *GPIOA_ODR ^= (1u << 5);
-    /* Delay: ~400000 iterations at the 4 MHz reset clock gives a visible rate.
-       volatile forces every iteration. */
-    for (volatile uint32_t i = 0; i < 400000; i++);
+while (1);
+
 }
 
+/* Clear the pending flag first and read it back: the store is buffered, and
+   returning before it reaches EXTI lets the NVIC re-enter this handler.
+   With a toggle, the double entry cancels itself and the LED never moves. */
+void EXTI15_10_IRQHandler(void) {
+    *EXTI_PR1 = (1u << 13);
+    (void)*EXTI_PR1;
+    *GPIOA_ODR ^= (1u << 5);
 }
