@@ -42,3 +42,20 @@ TIM2 IRQ number = 28 (RM0351 vector table), NVIC_ISER0 = 0xE000E100, bit 28 (PM0
 
 Rate math: 4 MHz / (PSC+1) / (ARR+1) = 1 Hz
     PSC = 3999, ARR = 999
+
+## Stage 4: USART2 TX (printf over ST-Link VCP)
+
+USART2 TX pin  = PA2 (UM1724 6.8)
+GPIOA_MODER    = 0x48000000, bits 5:4 for that pin, mode value 0b10 = alternate function (RM0351 §?)
+GPIOA_AFRL     = 0x48000000 + 0x20 = 0x48000020, bits 11:8 for that pin,
+    value AF7 selects USART2 (RM0351 8.5.9; low/high register depends on pin number)
+RCC_APB1ENR1   = 0x40021058, bit 17 = USART2EN (RM0351 6.4.19)
+USART2 base    = 0x40004400 , APB1 (RM0351 memory map)
+USART2_BRR     = base + 0x0C = 0x4000440C, baud divisor (RM0351 40.8.12)
+USART2_CR1     = base + 0x00 = 0x40004400, bit 0 = UE (enable), bit 3 = TE (transmitter) (RM0351 40.8.12)
+USART2_ISR     = base + 0x1C = 0x4000441C, bit 7 = TXE, transmit data register empty (RM0351 40.8.12)
+USART2_TDR     = base + 0x28 = 0x40004428, transmit data (RM0351 40.8.12)
+
+Clock into USART2 = 4 MHz (APB1, nothing divided yet)
+Baud = 115200. BRR value = clock / baud = 35
+

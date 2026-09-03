@@ -5,7 +5,7 @@
 # to memcpy, which is not linked in a -nostdlib build.
 CC      = arm-none-eabi-gcc
 CFLAGS  = -mcpu=cortex-m4 -mthumb -O2 -Wall -Wextra -g -ffreestanding -fno-builtin
-LDFLAGS = -T linker.ld -nostdlib -Wl,-Map=blink.map
+LDFLAGS = -T linker.ld -nostartfiles --specs=nano.specs --specs=nosys.specs -Wl,-Map=blink.map
 
 blink.bin: blink.elf
 	arm-none-eabi-objcopy -O binary $< $@

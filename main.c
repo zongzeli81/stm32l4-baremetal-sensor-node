@@ -1,8 +1,9 @@
 /*
- *  main.c - stage 1+2+3: blink LD2 from TIM2 interrupt, toggle on button via EXTI.
+ *  main.c - stage 1+2+3+4: blink from TIM2, button via EXTI, printf over USART2.
  */
 
 #include <stdint.h>
+#include <stdio.h>
 
 /* RCC_AHB2ENR at 0x40021000 + 0x4C: peripheral clock enables
    GPIOA register block at 0x48000000: MODER at +0x00, ODR at +0x14
@@ -29,7 +30,27 @@ volatile uint32_t *TIM2_SR = (volatile uint32_t *)0x40000010;
 volatile uint32_t *TIM2_PSC = (volatile uint32_t *)0x40000028;
 volatile uint32_t *TIM2_ARR = (volatile uint32_t *)0x4000002C;
 volatile uint32_t *NVIC_ISER0 = (volatile uint32_t *)0xE000E100;
+volatile uint32_t *GPIOA_AFRL = (volatile uint32_t *)0x48000020;
+/* USART2 at 0x40004400 (APB1): CR1 +0x00, BRR +0x0C, ISR +0x1C, TDR +0x28.
+   GPIOA_AFRL at +0x20: four bits per pin select the alternate function. */
+volatile uint32_t *USART2_BRR = (volatile uint32_t *)0x4000440C;
+volatile uint32_t *USART2_CR1 = (volatile uint32_t *)0x40004400;
+volatile uint32_t *USART2_ISR = (volatile uint32_t *)0x4000441C;
+volatile uint32_t *USART2_TDR = (volatile uint32_t *)0x40004428;
 
+/* Poll TXE (ISR bit 7): wait until TDR can take a byte, then write it. */
+void uart_putc(char c) {
+   while (!(*USART2_ISR & (1u << 7)));
+   *USART2_TDR = c;
+}
+
+/* printf delivers its bytes here (newlib retarget). Loop them out the UART. */
+int _write(int fd, const void *buf, unsigned int len) {
+   (void)fd;
+   const char *p = buf;
+   for (unsigned int i = 0; i < len; i++) uart_putc(p[i]);
+   return (int)len;
+}
 
 int main(void) {
 
@@ -40,6 +61,8 @@ int main(void) {
 *RCC_AHB2ENR |= (1u << 0);
 *RCC_APB2ENR |= (1u << 0);
 *RCC_APB1ENR1 |= (1u << 0);
+*RCC_APB1ENR1 |= (1u << 17);
+(void)*RCC_APB1ENR1;
 (void)*RCC_APB1ENR1;
 (void)*RCC_AHB2ENR;
 (void)*RCC_APB2ENR;
@@ -49,6 +72,10 @@ int main(void) {
    Other fields keep their reset values, including the SWD debug pins PA13/PA14, which can not be changed*/
 *GPIOA_MODER &= ~(3u <<10);
 *GPIOA_MODER |= (1u << 10);
+*GPIOA_MODER &= ~(3u << 4);
+*GPIOA_MODER |= (2u << 4);
+*GPIOA_AFRL &= ~(0xFu << 8);
+*GPIOA_AFRL |= (7u << 8);
 /* GPIOC resets to analog mode (MODER = 0xFFFFFFFF): Schmitt trigger is
    disconnected and edges never reach EXTI. Clear bits 27:26 to 00 = input. */
 *GPIOC_MODER &= ~(3u << 26);
@@ -70,6 +97,13 @@ int main(void) {
 /* Enable IRQ 28 (TIM2) in the NVIC: ISER0 bit 28. */
 *NVIC_ISER0 |= (1u << 28);
 *TIM2_CR1 |= (1u << 0);
+
+/* PA2 = USART2_TX via AF7 (ds10198 AF table). BRR = 4 MHz / 115200 = 35
+   (0.8% error). BRR must be written before UE sets. TE + UE enable. */
+*USART2_BRR = 35;
+*USART2_CR1 |= (1u << 3) | (1u << 0);
+
+printf("uart up, BRR=%lu\r\n", (unsigned long)*USART2_BRR);
 
 while (1);
 
